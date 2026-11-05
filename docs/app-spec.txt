@@ -1,0 +1,57 @@
+--- Overview ------------------------------------------------------------------
+
+The purpose of this application is two fold:
+    * First is to sort images in a specific folder based on characters, series,
+      and image content.
+
+    * Secondly, to read a file or multiple files and download images from the
+      source site.
+
+--- Tooling -------------------------------------------------------------------
+Technologies Used:
+    * Programming Language(s): Java
+
+--- UI Elements and Application Logic -----------------------------------------
+  * Application will be split into two different modules / functions as described above
+    * These should be divided into different tabs or panels within the UI
+
+--- Sort Images Logic ---------------------------------------------------------
+
+  * Selection controls:
+    * Source Folder - The folder containing the images to be sorted.
+    * Output Folder - The top level location where images will be sorted
+    * Tags - This works similiar to album organization tags such as:
+      * {{artist}}\{{album}}\{{character}} - {{##}}
+      * This allows the user to define a custom path and filename structure for the sorted images.
+      * Tags to support:
+        * series - The anime, game, visual novel, or other media franchise the image belongs to.
+        * character - The character or characters that are in the image:
+          * This can be a single character or multiple characters.
+          * If multiple characters are present, they should be identified as a "group".
+        * content - The type or category of the image content:
+          * Examples include "portrait", "landscape", "action", "romantic", etc.
+        * artist - The creator or artist of the image.
+        * ### - A numerical identifier for the image within the series, character, or album
+          * The number should be zero-padded to maintain consistent filename sorting.
+    * An activity monitor that displays what the application is currently doing, such as which images are being sorted or downloaded.
+    * A progress bar that visually indicates the completion status of the sorting or downloading process.
+
+--- Sort Image Run Logic ------------------------------------------------------
+
+  * When the user initiates the sorting process, the application will do the following:
+    * Scan the source folder for images
+    * For each image found, do the following:
+      * Determine the appropriate tags for the image using a local AI model to identify the same properties listed in the tags above
+        * Local AI should be setup using ComfyUI
+        * If the local AI model fails to determine the appropriate tags for the image:
+          * It should display a popup with the image on the right
+          * on the left should be a form with all tags that the user can manually fill in.
+      * Create the output path and filename for the image based on the determined tags and the user-defined structure.
+      * Check that there are no:
+        * Conflicts with existing files in the output folder
+        * Duplicate images:
+          * If a duplicate is found, the application should throw up a popup:
+            * Both images should be displayed to the user for comparison.
+            * The user should have the option to either keep both images, replace the existing image, or skip the duplicate.
+        * If no conflicts or duplicates are found, the image should be moved to the appropriate output path.
+      * Update the activity monitor and progress bar to reflect the completion of the image sorting.
