@@ -60,6 +60,21 @@ public final class ServiceSmokeTest {
                 try { SortPattern.resolve(invalid, tags, "sample.jpg", 1); throw new AssertionError("Invalid pattern accepted"); }
                 catch (IllegalArgumentException expected) { }
             }
+            Path recursiveSource = Files.createDirectories(root.resolve("recursive"));
+            Path nested = Files.createDirectories(recursiveSource.resolve("nested/deeper"));
+            Files.write(nested.resolve("nested.png"), new byte[]{7, 8, 9});
+            Files.write(recursiveSource.resolve("top.png"), new byte[]{10, 11, 12});
+            Path recursiveOutput = Files.createDirectories(recursiveSource.resolve("output"));
+            Files.write(recursiveOutput.resolve("previous.png"), new byte[]{13, 14, 15});
+            List<Integer> recursiveProgress = new ArrayList<>();
+            check(sort.sort(recursiveSource, recursiveOutput, "{{filename}}", image -> tags, keep,
+                    message -> {}, (done, total) -> {}) == 1, "default excludes nested files");
+            check(Files.exists(nested.resolve("nested.png")), "nested source untouched by default");
+            check(sort.sort(recursiveSource, recursiveOutput, "{{filename}}", true, image -> tags, keep,
+                    message -> {}, (done, total) -> recursiveProgress.add(total)) == 1, "recursive scan moves nested image");
+            check(!Files.exists(nested.resolve("nested.png")) && Files.exists(recursiveOutput.resolve("nested.png")), "nested move output");
+            check(recursiveProgress.equals(List.of(1, 1)), "nested output excluded from scan and progress");
+            check(Files.exists(recursiveOutput.resolve("previous.png")) && Files.exists(recursiveOutput.resolve("top.png")), "existing output untouched");
             server.createContext("/upload/image", exchange -> {
                 exchange.getRequestBody().readAllBytes();
                 byte[] body = "{\"name\":\"uploaded.png\",\"subfolder\":\"\"}".getBytes();

@@ -30,6 +30,7 @@ public final class MainWindow extends JFrame {
     };
     private final JTable activityTable = new JTable(activity);
     private final JTextField source = new JTextField();
+    private final JCheckBox includeSubfolders = new JCheckBox("Scan sub-folders");
     private final JTextField destination = new JTextField();
     private final JTextField pattern = new JTextField("{{series}}\\{{character}}\\{{artist}}\\{{filename}}");
     private final JTextField endpoint = new JTextField("http://127.0.0.1:8188");
@@ -53,6 +54,7 @@ public final class MainWindow extends JFrame {
         CardLayout pages = new CardLayout();
         JPanel workspace = new JPanel(pages); workspace.setOpaque(false);
         workspace.add(sortPanel(), "Sorter"); workspace.add(downloadPanel(), "Downloader");
+        workspace.add(configurationPanel(), "Configuration");
         JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 0));
         header.setBackground(BACKGROUND);
         header.setBorder(BorderFactory.createCompoundBorder(
@@ -69,11 +71,22 @@ public final class MainWindow extends JFrame {
             }
         }); brand.setIconTextGap(10);
         header.add(brand);
-        JButton sorterTab = tab("Sorter", true, false), downloaderTab = tab("Downloader", false, true);
-        header.add(sorterTab); header.add(downloaderTab);
-        JLabel mode = muted("LOCAL IMAGE WORKSPACE"); mode.setBorder(BorderFactory.createEmptyBorder(0, 20, 0, 0)); header.add(mode);
-        sorterTab.addActionListener(event -> { pages.show(workspace, "Sorter"); actionLayout.show(primaryAction, "Sorter"); previewButton.setVisible(true); selectTab(sorterTab, downloaderTab); });
-        downloaderTab.addActionListener(event -> { pages.show(workspace, "Downloader"); actionLayout.show(primaryAction, "Downloader"); previewButton.setVisible(false); selectTab(downloaderTab, sorterTab); });
+        JButton sorterTab = tab("Sorter", true, TabIcon.SORTER);
+        JButton downloaderTab = tab("Downloader", false, TabIcon.DOWNLOADER);
+        JButton configurationTab = tab("Configuration", false, TabIcon.CONFIGURATION);
+        List<JButton> tabs = List.of(sorterTab, downloaderTab, configurationTab);
+        for (JButton tab : tabs) {
+            header.add(tab);
+            tab.addActionListener(event -> {
+                String name = tab.getText();
+                pages.show(workspace, name);
+                actions.setVisible(!name.equals("Configuration"));
+                if (!name.equals("Configuration")) actionLayout.show(primaryAction, name);
+                previewButton.setVisible(name.equals("Sorter"));
+                selectTab(tab, tabs);
+            });
+        }
+        selectTab(sorterTab, tabs);
         root.add(header, BorderLayout.NORTH); root.add(workspace, BorderLayout.CENTER);
         JPanel bottom = new JPanel(new BorderLayout(0, 18)); bottom.setOpaque(false);
         bottom.add(activityPanel(), BorderLayout.CENTER);
@@ -91,11 +104,13 @@ public final class MainWindow extends JFrame {
         setSize(Math.min(1380, usable.width), Math.min(1140, usable.height)); setLocationRelativeTo(null);
     }
 
-    private void selectTab(JButton selected, JButton other) {
-        selected.putClientProperty("primary", true); other.putClientProperty("primary", false);
-        selected.getAccessibleContext().setAccessibleDescription("Selected tab");
-        other.getAccessibleContext().setAccessibleDescription("Inactive tab");
-        selected.repaint(); other.repaint();
+    private void selectTab(JButton selected, List<JButton> tabs) {
+        for (JButton tab : tabs) {
+            boolean active = tab == selected;
+            tab.putClientProperty("primary", active);
+            tab.getAccessibleContext().setAccessibleDescription(active ? "Selected tab" : "Inactive tab");
+            tab.repaint();
+        }
     }
 
     private JPanel sortPanel() {
@@ -103,8 +118,10 @@ public final class MainWindow extends JFrame {
         JPanel top = new JPanel(new BorderLayout(0, 14)); top.setOpaque(false);
         top.add(pageHeading("Image sorter", "Organize your images with tags and a custom folder structure."), BorderLayout.NORTH);
         JPanel sourceBar = surface(PANEL, 12); sourceBar.setLayout(new BorderLayout(18, 0));
-        sourceBar.add(folder("Source folder", source), BorderLayout.CENTER);
-        sourceBar.add(muted("Immediate image files only"), BorderLayout.EAST); top.add(sourceBar, BorderLayout.SOUTH);
+        sourceBar.add(folder("Source Folder", source), BorderLayout.CENTER);
+        includeSubfolders.setOpaque(false);
+        includeSubfolders.setToolTipText("Include images in all nested folders. The output folder is excluded.");
+        sourceBar.add(includeSubfolders, BorderLayout.EAST); top.add(sourceBar, BorderLayout.SOUTH);
         page.add(top, BorderLayout.NORTH);
         JPanel columns = new JPanel(new GridLayout(1, 2, 14, 0)); columns.setOpaque(false);
         columns.add(destinationPanel()); columns.add(patternPanel());
@@ -133,7 +150,14 @@ public final class MainWindow extends JFrame {
         addRow(cardBody, folder("Output folder", destination)); card.add(cardBody, BorderLayout.CENTER);
         addRow(body, card);
         addRow(body, muted("Files are moved after classification and duplicate review."));
-        addRow(body, new JSeparator());
+        panel.add(body, BorderLayout.CENTER); return panel;
+    }
+
+    private JPanel configurationPanel() {
+        JPanel page = new JPanel(new BorderLayout(0, 16)); page.setOpaque(false);
+        page.add(pageHeading("Configuration", "Set up local image recognition for the sorter."), BorderLayout.NORTH);
+        JPanel panel = surface(PANEL, 18); panel.setLayout(new BorderLayout());
+        JPanel body = vertical();
         addRow(body, title("Image recognition", 17));
         addRow(body, row("ComfyUI URL", endpoint));
         JPanel workflowRow = row("API workflow", workflow);
@@ -142,7 +166,13 @@ public final class MainWindow extends JFrame {
         addRow(body, row("Text node ID", outputNode));
         addRow(body, muted("Use a local vision workflow to identify tags for each image."));
         addRow(body, muted("Missing or invalid tags open manual review."));
-        panel.add(body, BorderLayout.CENTER); return panel;
+        addRow(body, muted("Changes apply to the next sorting run."));
+        panel.add(body, BorderLayout.NORTH);
+        JScrollPane scroll = new JScrollPane(panel);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getVerticalScrollBar().setUnitIncrement(20);
+        page.add(scroll, BorderLayout.CENTER);
+        return page;
     }
 
     private JPanel patternPanel() {
@@ -235,13 +265,14 @@ public final class MainWindow extends JFrame {
     private void startSort() {
         try {
             Path from = path(source), to = path(destination); String template = pattern.getText();
+            boolean recursive = includeSubfolders.isSelected();
             SortPattern.resolve(template, samples, "sample.jpg", 1);
             String url = endpoint.getText().strip(), node = outputNode.getText().strip(); Path workflowFile = path(workflow);
             runTask("Sorting", logger -> {
                 ImageSortService.Tagger tagger;
                 try { tagger = new ComfyTagger(url, workflowFile, node); }
                 catch (Exception failure) { logger.accept("ComfyUI unavailable: " + failure.getMessage()); tagger = image -> { throw new java.io.IOException(failure.getMessage()); }; }
-                return new ImageSortService().sort(from, to, template, tagger, new ImageSortService.Interaction() {
+                return new ImageSortService().sort(from, to, template, recursive, tagger, new ImageSortService.Interaction() {
                     public Map<String, String> manualTags(Path image, Map<String, String> suggested, String reason) throws Exception { return onUi(() -> reviewTags(image, suggested, reason, template)); }
                     public ImageSortService.Decision conflict(Path incoming, Path existing, boolean duplicate) throws Exception { return onUi(() -> compareImages(incoming, existing, duplicate)); }
                 }, logger, (done, total) -> SwingUtilities.invokeLater(() -> {
@@ -367,7 +398,7 @@ public final class MainWindow extends JFrame {
         if (picker.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) field.setText(picker.getSelectedFile().getAbsolutePath());
     }
     private Path path(JTextField field) {
-        if (field.getText().isBlank()) throw new IllegalArgumentException("Choose the required folders and workflow file first.");
+        if (field.getText().isBlank()) throw new IllegalArgumentException("Choose the required folders and select a workflow file in the Configuration tab.");
         return Path.of(field.getText().strip());
     }
     private static Color statusColor(String value) {

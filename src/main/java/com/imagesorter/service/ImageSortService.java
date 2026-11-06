@@ -32,14 +32,30 @@ public final class ImageSortService {
     }
     public int sort(Path source, Path destination, String pattern, Tagger tagger, Interaction interaction,
                     Consumer<String> log, BiConsumer<Integer, Integer> progress) throws Exception {
+        return sort(source, destination, pattern, false, tagger, interaction, log, progress);
+    }
+    public int sort(Path source, Path destination, String pattern, boolean includeSubfolders,
+                    Tagger tagger, Interaction interaction, Consumer<String> log,
+                    BiConsumer<Integer, Integer> progress) throws Exception {
         if (!Files.isDirectory(source)) throw new IOException("Choose an existing source folder.");
         Map<String, String> sample = new HashMap<>(); TAGS.forEach(key -> sample.put(key, "Sample"));
         SortPattern.resolve(pattern, sample, "sample.jpg", 1);
         Files.createDirectories(destination);
         Path target = destination.toRealPath();
         if (Files.isSameFile(source, target)) throw new IOException("Source and output folders must differ.");
-        List<Path> images;
-        try (var files = Files.list(source)) { images = files.filter(Files::isRegularFile).filter(ImageSortService::isImage).sorted().toList(); }
+        List<Path> images = new ArrayList<>();
+        Files.walkFileTree(source.toRealPath(), Set.of(), includeSubfolders ? Integer.MAX_VALUE : 1,
+                new SimpleFileVisitor<Path>() {
+                    public FileVisitResult preVisitDirectory(Path directory, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+                        // Never sort previous output when it is nested inside the source.
+                        return directory.toRealPath().equals(target) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+                    }
+                    public FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                        if (attrs.isRegularFile() && isImage(file)) images.add(file);
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+        images.sort(Comparator.naturalOrder());
         Map<String, List<Path>> hashes = new HashMap<>();
         log.accept("Scanning output for duplicates...");
         try (var files = Files.walk(target)) {

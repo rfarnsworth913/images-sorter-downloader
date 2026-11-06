@@ -133,17 +133,26 @@ public final class ImageFlowTheme {
         return button;
     }
 
-    public static JButton tab(String text, boolean selected, boolean downloader) {
+    public enum TabIcon { SORTER, DOWNLOADER, CONFIGURATION }
+
+    public static JButton tab(String text, boolean selected, TabIcon icon) {
         JButton tab = button(text, selected);
         tab.putClientProperty("tab", true);
-        tab.setPreferredSize(new Dimension(downloader ? 172 : 132, 42));
+        tab.setPreferredSize(new Dimension(icon == TabIcon.SORTER ? 132 : icon == TabIcon.DOWNLOADER ? 172 : 188, 42));
         tab.setIcon(new Icon() {
             public int getIconWidth() { return 20; } public int getIconHeight() { return 20; }
             public void paintIcon(Component c, Graphics graphics, int x, int y) {
                 Graphics2D g = (Graphics2D) graphics.create();
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g.setColor(TEXT); g.setStroke(new BasicStroke(1.5f));
-                if (downloader) {
+                if (icon == TabIcon.CONFIGURATION) {
+                    g.drawOval(x+5, y+5, 10, 10); g.drawOval(x+8, y+8, 4, 4);
+                    for (int i = 0; i < 8; i++) {
+                        double angle = i * Math.PI / 4;
+                        g.draw(new java.awt.geom.Line2D.Double(x+10+6*Math.cos(angle), y+10+6*Math.sin(angle),
+                                x+10+9*Math.cos(angle), y+10+9*Math.sin(angle)));
+                    }
+                } else if (icon == TabIcon.DOWNLOADER) {
                     g.drawLine(x+10,y+2,x+10,y+13); g.drawLine(x+5,y+9,x+10,y+14);
                     g.drawLine(x+15,y+9,x+10,y+14); g.drawLine(x+3,y+18,x+17,y+18);
                 } else {

@@ -3,8 +3,8 @@
 A small Java Swing desktop application based on [the app spec](docs/app-spec.txt).
 Requires JDK 17 or newer; no third-party dependencies or build-tool installation.
 
-The ImageFlow desktop UI uses a dark theme with teal accents, separate Sorter and
-Downloader workspaces, clickable pattern tags, a live sample folder tree, and a
+The ImageFlow desktop UI uses a dark theme with teal accents, separate Sorter, Downloader, and
+Configuration workspaces, clickable pattern tags, a live sample folder tree, and a
 timestamped activity table with progress and completion counts. Settings scroll
 on smaller windows. The preview uses illustrative tags and does not scan or move
 files. Sorting currently uses one output destination, moves files, and prompts
@@ -33,7 +33,9 @@ Build only with `.\build.ps1`, or build and run service smoke tests with
   Exact duplicates (SHA-256 of file contents) and filename conflicts show both
   images with keep-both, replace-existing, and skip-incoming choices. Keep-both
   adds a numeric suffix when needed. Successful sorting **moves** the source;
-  skipping preserves it. Only immediate source files are scanned; supported
+  skipping preserves it. Only immediate source files are scanned by default. Enable **Scan sub-folders**
+  to include nested folders; the output directory is always excluded from the
+  source scan and symbolic links are not followed. Supported
   extensions: JPG/JPEG, PNG, GIF, BMP, WebP, TIFF/TIF. Java's built-in preview
   support varies by format; unsupported previews show the filename instead.
   The activity monitor and progress bar update as images are processed.
@@ -43,7 +45,7 @@ Build only with `.\build.ps1`, or build and run service smoke tests with
   Build a workflow that reads an image, identifies the properties above, and
   exposes a text output through an output node. Export the workflow in **API
   format**, replace the image input filename with `{{image}}`, then select this
-  JSON file and enter the text output node ID in the sorter. The node must expose
+  JSON file and enter the text output node ID in the Configuration tab. The node must expose
   a `text` string or list of strings in execution history; the first string must
   be a JSON object, without markdown fences, for example:
   `{"series":"Example","character":["Hero","Friend"],"content":"portrait","artist":"Unknown","album":"Example"}`.
