@@ -15,6 +15,8 @@ try {
     $sources = @(Get-ChildItem src/main/java -Recurse -Filter *.java | ForEach-Object FullName)
     & javac --release 17 -encoding UTF-8 -d build/classes @sources
     if ($LASTEXITCODE -ne 0) { throw 'Java compilation failed.' }
+    New-Item -ItemType Directory -Force build/classes/data | Out-Null
+    Copy-Item -LiteralPath data/tags.csv -Destination build/classes/data/tags.csv
     & $jarTool --create --file build/images-sorter-downloader.jar --main-class com.imagesorter.App -C build/classes .
     if ($LASTEXITCODE -ne 0) { throw 'JAR packaging failed.' }
     if ($Test) {

@@ -75,6 +75,7 @@ public final class ServiceSmokeTest {
             check(!Files.exists(nested.resolve("nested.png")) && Files.exists(recursiveOutput.resolve("nested.png")), "nested move output");
             check(recursiveProgress.equals(List.of(1, 1)), "nested output excluded from scan and progress");
             check(Files.exists(recursiveOutput.resolve("previous.png")) && Files.exists(recursiveOutput.resolve("top.png")), "existing output untouched");
+            checkRouting(root, sort, tags);
             server.createContext("/upload/image", exchange -> {
                 exchange.getRequestBody().readAllBytes();
                 byte[] body = "{\"name\":\"uploaded.png\",\"subfolder\":\"\"}".getBytes();
@@ -86,7 +87,7 @@ public final class ServiceSmokeTest {
                 exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close();
             });
             server.createContext("/history/test", exchange -> {
-                String text = com.imagesorter.service.Json.encode(Map.of("series", "Series", "character", List.of("A", "B"), "content", "Portrait", "artist", "Artist", "album", "Album"));
+                String text = com.imagesorter.service.Json.encode(Map.of("series", "Series", "character", List.of("A", "B"), "content", "Portrait", "artist", "Artist", "album", "Album", "rating", "nsfw", "tags", List.of("erotic_art", "fantasy")));
                 byte[] body = com.imagesorter.service.Json.encode(Map.of("test", Map.of("outputs", Map.of("9", Map.of("text", List.of(text)))))).getBytes();
                 exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close();
             });
@@ -106,6 +107,7 @@ public final class ServiceSmokeTest {
             Files.writeString(workflow, "{\"1\":{\"inputs\":{\"image\":\"{{image}}\"},\"class_type\":\"LoadImage\"}}");
             Map<String, String> recognized = new com.imagesorter.service.ComfyTagger(base, workflow, "9").identify(existing);
             check(recognized.get("character").equals("group") && recognized.get("artist").equals("Artist"), "ComfyUI workflow and group recognition");
+            check(recognized.get("rating").equals("nsfw") && recognized.get("tags").equals("erotic_art, fantasy"), "ComfyUI rating and routing tags preserved");
             Path urls = root.resolve("urls.txt");
             Files.writeString(urls, "# comment\n\nfile:///invalid\n" + base + "/page\n" + base + "/missing\n" + base + "/image\n" + base + "/image\n");
             List<String> logs = new ArrayList<>();
@@ -124,6 +126,70 @@ public final class ServiceSmokeTest {
                 for (Path path : files.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
             }
         }
+    }
+
+    private static void checkRouting(Path root, ImageSortService sorter, Map<String, String> metadata) throws Exception {
+        Path source = Files.createDirectories(root.resolve("routing-source"));
+        Path fallback = source.resolve("default"), specific = source.resolve("specific"), adult = source.resolve("adult");
+        var routes = List.of(new com.imagesorter.service.OutputDestination(fallback, java.util.Set.of()),
+                new com.imagesorter.service.OutputDestination(specific, java.util.Set.of("nsfw", "erotic_art")),
+                new com.imagesorter.service.OutputDestination(adult, java.util.Set.of("nsfw")));
+        Files.createDirectories(fallback); Files.createDirectories(specific); Files.createDirectories(adult);
+        Files.write(fallback.resolve("previous.png"), new byte[]{31});
+        Files.write(specific.resolve("previous.png"), new byte[]{32}); Files.write(adult.resolve("previous.png"), new byte[]{33});
+        Files.write(source.resolve("a.png"), new byte[]{31}); Files.write(source.resolve("b.png"), new byte[]{34});
+        Files.write(source.resolve("c.png"), new byte[]{35}); Files.write(source.resolve("d.png"), new byte[]{36});
+        var tagger = (ImageSortService.Tagger) image -> {
+            Map<String, String> result = new java.util.HashMap<>(metadata);
+            switch(image.getFileName().toString()) {
+                case "a.png" -> { result.put("rating", "NSFW"); result.put("tags", "erotic_art, fantasy"); }
+                case "b.png" -> result.put("rating", "nsfw");
+                case "c.png" -> result.put("rating", "sfw");
+                default -> { }
+            }
+            return result;
+        };
+        var interaction = new ImageSortService.Interaction() {
+            public Map<String, String> manualTags(Path image, Map<String, String> suggested, String reason) {
+                var result = new java.util.HashMap<>(metadata); result.put("rating", "nsfw"); return result;
+            }
+            public ImageSortService.Decision conflict(Path incoming, Path existing, boolean duplicate) {
+                throw new AssertionError("Unexpected conflict across routing destinations: " + existing);
+            }
+        };
+        List<Integer> totals = new ArrayList<>();
+        check(sorter.sort(source, routes, "{{series}}/{{filename}}", true, tagger, interaction, message -> {},
+                (done, total) -> totals.add(total)) == 4, "multi-folder routing count");
+        check(Files.exists(specific.resolve("Series/a.png")), "all-tags match uses first matching destination");
+        check(Files.exists(adult.resolve("Series/b.png")), "partial match falls through to next rule");
+        check(Files.exists(fallback.resolve("Series/c.png")) && Files.exists(fallback.resolve("Series/d.png")), "default fallback");
+        check(totals.equals(List.of(4, 4, 4, 4, 4)), "all nested output folders excluded");
+        Files.write(source.resolve("duplicate.png"), new byte[]{31});
+        int[] duplicates = {0};
+        var skipDuplicate = new ImageSortService.Interaction() {
+            public Map<String, String> manualTags(Path image, Map<String, String> suggested, String reason) { return metadata; }
+            public ImageSortService.Decision conflict(Path incoming, Path existing, boolean duplicate) {
+                check(duplicate && existing.startsWith(specific), "duplicate detection uses selected destination");
+                duplicates[0]++; return ImageSortService.Decision.SKIP;
+            }
+        };
+        Map<String, String> adultTags = new java.util.HashMap<>(metadata); adultTags.put("tags", "NSFW, erotic_art");
+        check(sorter.sort(source, routes, "{{filename}}", true, image -> adultTags, skipDuplicate, message -> {}, (done,total)->{}) == 0
+                && duplicates[0] == 1 && Files.exists(source.resolve("duplicate.png")), "routed duplicate skip preserves source");
+        Files.delete(source.resolve("duplicate.png"));
+        Files.write(source.resolve("manual.png"), new byte[]{37});
+        check(sorter.sort(source, routes, "{{filename}}", true, image -> { throw new java.io.IOException("Manual required"); },
+                interaction, message -> {}, (done,total)->{}) == 1 && Files.exists(adult.resolve("manual.png")), "manual tags choose routing destination");
+        try {
+            sorter.sort(source, List.of(routes.get(0), new com.imagesorter.service.OutputDestination(adult, java.util.Set.of())),
+                    "{{filename}}", true, tagger, interaction, message -> {}, (done,total)->{});
+            throw new AssertionError("Additional destination without tags accepted");
+        } catch (IllegalArgumentException expected) { }
+        try {
+            sorter.sort(source, List.of(routes.get(0), new com.imagesorter.service.OutputDestination(source, java.util.Set.of("sfw"))),
+                    "{{filename}}", true, tagger, interaction, message -> {}, (done,total)->{});
+            throw new AssertionError("Source used as routed destination");
+        } catch (java.io.IOException expected) { }
     }
 
     private static void check(boolean condition, String message) {

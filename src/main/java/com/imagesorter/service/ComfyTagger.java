@@ -61,6 +61,12 @@ public final class ComfyTagger implements ImageSortService.Tagger {
                             value = characters.size() > 1 ? "group" : characters.isEmpty() ? "" : characters.get(0);
                         if (value instanceof String s) tags.put(key, s.strip());
                     }
+                    for (String key : List.of("rating", "tags")) {
+                        Object value = values.get(key);
+                        if (value instanceof List<?> labels && labels.stream().allMatch(String.class::isInstance))
+                            tags.put(key, String.join(", ", labels.stream().map(String.class::cast).toList()));
+                        else if (value instanceof String label) tags.put(key, label.strip());
+                    }
                     return tags;
                 }
                 if (entry.get("status") instanceof Map<?, ?> status && Boolean.TRUE.equals(status.get("completed")))

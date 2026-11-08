@@ -37,18 +37,31 @@ public final class ImageSortService {
     public int sort(Path source, Path destination, String pattern, boolean includeSubfolders,
                     Tagger tagger, Interaction interaction, Consumer<String> log,
                     BiConsumer<Integer, Integer> progress) throws Exception {
+        return sort(source, List.of(new OutputDestination(destination, Set.of())), pattern, includeSubfolders,
+                tagger, interaction, log, progress);
+    }
+    public int sort(Path source, List<OutputDestination> destinations, String pattern, boolean includeSubfolders,
+                    Tagger tagger, Interaction interaction, Consumer<String> log,
+                    BiConsumer<Integer, Integer> progress) throws Exception {
+        destinations = List.copyOf(destinations);
+        OutputDestination.validate(destinations);
         if (!Files.isDirectory(source)) throw new IOException("Choose an existing source folder.");
         Map<String, String> sample = new HashMap<>(); TAGS.forEach(key -> sample.put(key, "Sample"));
         SortPattern.resolve(pattern, sample, "sample.jpg", 1);
-        Files.createDirectories(destination);
-        Path target = destination.toRealPath();
-        if (Files.isSameFile(source, target)) throw new IOException("Source and output folders must differ.");
+        List<OutputDestination> resolved = new ArrayList<>();
+        for (OutputDestination destination : destinations) {
+            Files.createDirectories(destination.folder());
+            Path target = destination.folder().toRealPath();
+            if (Files.isSameFile(source, target)) throw new IOException("Source and output folders must differ.");
+            resolved.add(new OutputDestination(target, destination.requiredTags()));
+        }
+        Set<Path> targets = new HashSet<>(); resolved.forEach(d -> targets.add(d.folder()));
         List<Path> images = new ArrayList<>();
         Files.walkFileTree(source.toRealPath(), Set.of(), includeSubfolders ? Integer.MAX_VALUE : 1,
                 new SimpleFileVisitor<Path>() {
                     public FileVisitResult preVisitDirectory(Path directory, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
                         // Never sort previous output when it is nested inside the source.
-                        return directory.toRealPath().equals(target) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+                        return targets.contains(directory.toRealPath()) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
                     }
                     public FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
                         if (attrs.isRegularFile() && isImage(file)) images.add(file);
@@ -56,12 +69,16 @@ public final class ImageSortService {
                     }
                 });
         images.sort(Comparator.naturalOrder());
-        Map<String, List<Path>> hashes = new HashMap<>();
-        log.accept("Scanning output for duplicates...");
-        try (var files = Files.walk(target)) {
-            for (Path file : files.filter(Files::isRegularFile).filter(ImageSortService::isImage).toList()) {
-                if (file.toRealPath().startsWith(target)) hashes.computeIfAbsent(hash(file), key -> new ArrayList<>()).add(file);
+        Map<Path, Map<String, List<Path>>> destinationHashes = new HashMap<>();
+        log.accept("Scanning output destinations for duplicates...");
+        for (Path target : targets) {
+            Map<String, List<Path>> hashes = new HashMap<>();
+            try (var files = Files.walk(target)) {
+                for (Path file : files.filter(Files::isRegularFile).filter(ImageSortService::isImage).toList()) {
+                    if (file.toRealPath().startsWith(target)) hashes.computeIfAbsent(hash(file), key -> new ArrayList<>()).add(file);
+                }
             }
+            destinationHashes.put(target, hashes);
         }
         int count = 0, sequence = 0;
         progress.accept(0, images.size());
@@ -80,6 +97,8 @@ public final class ImageSortService {
                 if (tags == null) { log.accept("Skipped: " + file.getFileName()); progress.accept(sequence, images.size()); continue; }
                 validate(tags, pattern, file, sequence);
             }
+            Path target = OutputDestination.select(resolved, tags);
+            Map<String, List<Path>> hashes = destinationHashes.get(target);
             Path output = target.resolve(SortPattern.resolve(pattern, tags, file.getFileName().toString(), sequence)).normalize();
             if (!output.startsWith(target)) throw new IOException("Sorted path must stay inside output folder.");
             // Check every existing parent before creating directories, including symlinks.
@@ -110,10 +129,12 @@ public final class ImageSortService {
             else {
                 Files.createDirectories(output.getParent());
                 if (!output.getParent().toRealPath().startsWith(target)) throw new IOException("Output path escapes the output folder.");
-                for (List<Path> entries : hashes.values()) entries.remove(output);
+                for (var index : destinationHashes.values())
+                    for (List<Path> entries : index.values()) entries.remove(output);
                 move(file, output, replace);
-                hashes.computeIfAbsent(fingerprint, key -> new ArrayList<>()).add(output);
-                count++; log.accept("Moved: " + file.getFileName() + " -> " + target.relativize(output));
+                for (Path root : targets)
+                    if (output.startsWith(root)) destinationHashes.get(root).computeIfAbsent(fingerprint, key -> new ArrayList<>()).add(output);
+                count++; log.accept("Moved: " + file.getFileName() + " -> " + output);
             }
             progress.accept(sequence, images.size());
         }

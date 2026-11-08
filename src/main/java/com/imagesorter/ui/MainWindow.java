@@ -18,6 +18,11 @@ import javax.swing.tree.*;
 import static com.imagesorter.ui.ImageFlowTheme.*;
 
 public final class MainWindow extends JFrame {
+    private final TagCatalog tagCatalog = loadTagCatalog();
+    private static TagCatalog loadTagCatalog() {
+        try { return TagCatalog.load(); }
+        catch (java.io.IOException failure) { throw new IllegalStateException("Unable to load the tag library: " + failure.getMessage(), failure); }
+    }
     private final JLabel status = new JLabel("Ready to organize your images");
     private final JLabel counters = new JLabel("0 completed     /     0 skipped     /     0 errors");
     private final JProgressBar progress = new JProgressBar(0, 100);
@@ -31,7 +36,8 @@ public final class MainWindow extends JFrame {
     private final JTable activityTable = new JTable(activity);
     private final JTextField source = new JTextField();
     private final JCheckBox includeSubfolders = new JCheckBox("Scan sub-folders");
-    private final JTextField destination = new JTextField();
+    private final JTextField destination = new JTextField(Path.of(System.getProperty("user.home"), "Pictures", "ImageFlow").toString());
+    private OutputFoldersPanel outputFolders;
     private final JTextField pattern = new JTextField("{{series}}\\{{character}}\\{{artist}}\\{{filename}}");
     private final JTextField endpoint = new JTextField("http://127.0.0.1:8188");
     private final JTextField workflow = new JTextField();
@@ -120,7 +126,7 @@ public final class MainWindow extends JFrame {
         JPanel sourceBar = surface(PANEL, 12); sourceBar.setLayout(new BorderLayout(18, 0));
         sourceBar.add(folder("Source Folder", source), BorderLayout.CENTER);
         includeSubfolders.setOpaque(false);
-        includeSubfolders.setToolTipText("Include images in all nested folders. The output folder is excluded.");
+        includeSubfolders.setToolTipText("Include images in all nested folders. All output folders are excluded.");
         sourceBar.add(includeSubfolders, BorderLayout.EAST); top.add(sourceBar, BorderLayout.SOUTH);
         page.add(top, BorderLayout.NORTH);
         JPanel columns = new JPanel(new GridLayout(1, 2, 14, 0)); columns.setOpaque(false);
@@ -137,20 +143,8 @@ public final class MainWindow extends JFrame {
     }
 
     private JPanel destinationPanel() {
-        JPanel panel = surface(PANEL, 16); panel.setLayout(new BorderLayout(0, 16));
-        panel.add(title("Output destination", 19), BorderLayout.NORTH);
-        JPanel body = vertical();
-        JPanel card = surface(CARD, 14); card.setLayout(new BorderLayout(0, 12));
-        JPanel cardHead = new JPanel(new BorderLayout()); cardHead.setOpaque(false);
-        cardHead.add(title("01    Image collection", 17), BorderLayout.WEST);
-        JLabel badge = new JLabel("  ALL IMAGES  "); badge.setForeground(ACCENT); badge.setFont(badge.getFont().deriveFont(Font.BOLD, 11));
-        cardHead.add(badge, BorderLayout.EAST); card.add(cardHead, BorderLayout.NORTH);
-        JPanel cardBody = vertical();
-        addRow(cardBody, muted("Every image is organized into this destination."));
-        addRow(cardBody, folder("Output folder", destination)); card.add(cardBody, BorderLayout.CENTER);
-        addRow(body, card);
-        addRow(body, muted("Files are moved after classification and duplicate review."));
-        panel.add(body, BorderLayout.CENTER); return panel;
+        outputFolders = new OutputFoldersPanel(tagCatalog, destination, this::refreshPreview);
+        return outputFolders;
     }
 
     private JPanel configurationPanel() {
@@ -167,6 +161,26 @@ public final class MainWindow extends JFrame {
         addRow(body, muted("Use a local vision workflow to identify tags for each image."));
         addRow(body, muted("Missing or invalid tags open manual review."));
         addRow(body, muted("Changes apply to the next sorting run."));
+        addRow(body, new JSeparator());
+        addRow(body, title("Content tag library", 17));
+        addRow(body, muted("Edit data/tags.csv and restart to update the library."));
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode("Content categories");
+        for (TagCatalog.Entry category : tagCatalog.entries()) {
+            if (!category.type().equals("category")) continue;
+            DefaultMutableTreeNode group = new DefaultMutableTreeNode(category.tag().toUpperCase(java.util.Locale.ROOT));
+            for (TagCatalog.Entry entry : tagCatalog.entries())
+                if (entry.type().equals("content") && entry.parent().equals(category.tag()))
+                    group.add(new DefaultMutableTreeNode(entry.tag()));
+            root.add(group);
+        }
+        JTree library = new JTree(root); library.setRowHeight(24);
+        DefaultTreeCellRenderer renderer = new DefaultTreeCellRenderer();
+        renderer.setBackgroundNonSelectionColor(INPUT); renderer.setTextNonSelectionColor(TEXT);
+        renderer.setBackgroundSelectionColor(CARD); renderer.setTextSelectionColor(TEXT);
+        library.setCellRenderer(renderer);
+        JScrollPane libraryScroll = new JScrollPane(library);
+        libraryScroll.setPreferredSize(new Dimension(500, 190)); addRow(body, libraryScroll);
+        addRow(body, muted("Use these labels in destination rules; recognition is determined by your workflow."));
         panel.add(body, BorderLayout.NORTH);
         JScrollPane scroll = new JScrollPane(panel);
         scroll.setBorder(BorderFactory.createEmptyBorder());
@@ -181,13 +195,13 @@ public final class MainWindow extends JFrame {
         addRow(settings, title("Folder & filename pattern", 17)); addRow(settings, pattern);
         addRow(settings, muted("Use \\ to create folders. The source extension is added automatically."));
         addRow(settings, new JSeparator()); addRow(settings, title("Tag library", 16));
-        JPanel chips = new JPanel(new GridLayout(2, 4, 6, 6)); chips.setOpaque(false);
-        for (String tag : List.of("series", "character", "artist", "content", "album", "filename", "###")) {
+        JPanel chips = new JPanel(new GridLayout(0, 4, 6, 6)); chips.setOpaque(false);
+        for (String tag : tagCatalog.patterns()) {
             JButton chip = button("{{" + tag + "}}", false); chip.setForeground(ACCENT);
             chip.setFont(chip.getFont().deriveFont(11f)); chip.setPreferredSize(new Dimension(tag.length()*7 + 30, 28));
             chip.addActionListener(event -> pattern.replaceSelection("{{" + tag + "}}")); chips.add(chip);
         }
-        chips.setPreferredSize(new Dimension(420, 64)); addRow(settings, chips);
+        chips.setPreferredSize(new Dimension(420, Math.max(1, (tagCatalog.patterns().size() + 3) / 4) * 35 - 6)); addRow(settings, chips);
         addRow(settings, muted("Click a tag to insert it at the cursor."));
         addRow(settings, new JSeparator()); addRow(settings, title("Live preview", 16));
         panel.add(settings, BorderLayout.NORTH);
@@ -264,7 +278,8 @@ public final class MainWindow extends JFrame {
 
     private void startSort() {
         try {
-            Path from = path(source), to = path(destination); String template = pattern.getText();
+            Path from = path(source); String template = pattern.getText();
+            List<OutputDestination> destinations = outputFolders.destinations();
             boolean recursive = includeSubfolders.isSelected();
             SortPattern.resolve(template, samples, "sample.jpg", 1);
             String url = endpoint.getText().strip(), node = outputNode.getText().strip(); Path workflowFile = path(workflow);
@@ -272,7 +287,7 @@ public final class MainWindow extends JFrame {
                 ImageSortService.Tagger tagger;
                 try { tagger = new ComfyTagger(url, workflowFile, node); }
                 catch (Exception failure) { logger.accept("ComfyUI unavailable: " + failure.getMessage()); tagger = image -> { throw new java.io.IOException(failure.getMessage()); }; }
-                return new ImageSortService().sort(from, to, template, recursive, tagger, new ImageSortService.Interaction() {
+                return new ImageSortService().sort(from, destinations, template, recursive, tagger, new ImageSortService.Interaction() {
                     public Map<String, String> manualTags(Path image, Map<String, String> suggested, String reason) throws Exception { return onUi(() -> reviewTags(image, suggested, reason, template)); }
                     public ImageSortService.Decision conflict(Path incoming, Path existing, boolean duplicate) throws Exception { return onUi(() -> compareImages(incoming, existing, duplicate)); }
                 }, logger, (done, total) -> SwingUtilities.invokeLater(() -> {
@@ -285,17 +300,22 @@ public final class MainWindow extends JFrame {
     }
 
     private String previewPath() {
-        return (destination.getText().isBlank() ? "Output folder" : destination.getText().strip()) + java.io.File.separator
-                + SortPattern.resolve(pattern.getText(), samples, "sample.jpg", 1);
+        Path relative = SortPattern.resolve(pattern.getText(), samples, "sample.jpg", 1);
+        return "<html>Sample paths (routing depends on each image's tags):<br>" + String.join("<br>",
+                outputFolders.previewFolders().stream().map(folder -> html(folder + java.io.File.separator + relative)).toList()) + "</html>";
     }
+    private static String html(String value) { return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"); }
     private void refreshPreview() {
+        if (outputFolders == null) return;
         try {
             Path relative = SortPattern.resolve(pattern.getText(), samples, "sample.jpg", 1);
-            DefaultMutableTreeNode root = new DefaultMutableTreeNode(destination.getText().isBlank() ? "Output folder" : destination.getText().strip());
-            DefaultMutableTreeNode parent = root;
-            for (Path segment : relative) { DefaultMutableTreeNode child = new DefaultMutableTreeNode(segment.toString()); parent.add(child); parent = child; }
+            DefaultMutableTreeNode root = new DefaultMutableTreeNode("Output destinations (sample paths)");
+            for (String folder : outputFolders.previewFolders()) {
+                DefaultMutableTreeNode parent = new DefaultMutableTreeNode(folder); root.add(parent);
+                for (Path segment : relative) { DefaultMutableTreeNode child = new DefaultMutableTreeNode(segment.toString()); parent.add(child); parent = child; }
+            }
             previewTree.setModel(new DefaultTreeModel(root)); for (int i=0; i<previewTree.getRowCount(); i++) previewTree.expandRow(i);
-            previewNote.setText("Sample tags · sample.jpg · extension preserved"); previewNote.setForeground(MUTED); previewButton.setEnabled(true);
+            previewNote.setText("Sample tags - routing uses each image's recognized tags"); previewNote.setForeground(MUTED); previewButton.setEnabled(true);
         } catch (IllegalArgumentException e) { previewTree.setModel(new DefaultTreeModel(new DefaultMutableTreeNode("Invalid pattern"))); previewNote.setText("Invalid pattern. Hover for details."); previewNote.setToolTipText(e.getMessage()); previewNote.setForeground(ImageFlowTheme.ERROR); previewButton.setEnabled(false); }
     }
     private static void listen(JTextField field, Runnable action) {
@@ -329,20 +349,26 @@ public final class MainWindow extends JFrame {
 
     private Map<String, String> reviewTags(Path image, Map<String, String> suggested, String reason, String pattern) {
         JPanel panel = new JPanel(new BorderLayout(12, 12));
-        JPanel fieldsPanel = new JPanel(new GridLayout(0, 1, 8, 8));
+        JPanel fieldsPanel = vertical();
         Map<String, JTextField> fields = new LinkedHashMap<>();
         for (String tag : ImageSortService.TAGS) {
             JTextField field = new JTextField(suggested.getOrDefault(tag, ""), 22);
-            fields.put(tag, field); fieldsPanel.add(row(tag, field));
+            fields.put(tag, field); addRow(fieldsPanel, row(tag, field));
         }
+        TagPicker routingTags = new TagPicker(tagCatalog, OutputDestination.labels(suggested), () -> {});
+        addRow(fieldsPanel, new JLabel("Routing tags")); routingTags.setAlignmentX(Component.LEFT_ALIGNMENT); fieldsPanel.add(routingTags);
         fieldsPanel.add(new JLabel("Multiple characters: enter group. Unknown values: enter Unknown."));
-        panel.add(fieldsPanel, BorderLayout.WEST);
+        JPanel formHolder = new JPanel(new BorderLayout()); formHolder.setOpaque(false); formHolder.add(fieldsPanel, BorderLayout.NORTH);
+        JScrollPane formScroll = new JScrollPane(formHolder); formScroll.setPreferredSize(new Dimension(410, 440));
+        panel.add(formScroll, BorderLayout.WEST);
         panel.add(imagePreview(image), BorderLayout.EAST);
         panel.setToolTipText(reason);
         while (JOptionPane.showOptionDialog(this, panel, "Manual tags: " + image.getFileName(),
                 JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
                 new String[]{"Use tags", "Skip image"}, "Use tags") == 0) {
-            Map<String, String> tags = new LinkedHashMap<>();
+            Map<String, String> tags = new LinkedHashMap<>(suggested);
+            tags.remove("rating");
+            tags.put("tags", String.join(", ", routingTags.selected()));
             fields.forEach((key, field) -> tags.put(key, field.getText().strip()));
             try {
                 for (String key : List.of("series", "character", "content", "artist"))
