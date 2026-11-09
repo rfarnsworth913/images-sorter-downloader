@@ -192,7 +192,7 @@ public final class ImageFlowTheme {
         }
     }
 
-    public static final class RoundedBorder extends AbstractBorder {
+    public static class RoundedBorder extends AbstractBorder {
         private final Color color; private final int radius;
         public RoundedBorder(Color color, int radius) { this.color = color; this.radius = radius; }
         public Insets getBorderInsets(Component c) { return new Insets(2, 2, 2, 2); }

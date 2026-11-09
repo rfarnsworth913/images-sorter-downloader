@@ -1,4 +1,4 @@
-﻿type,parent,tag
+type,parent,tag
 pattern,,series
 pattern,,character
 pattern,,artist
@@ -28,3 +28,4 @@ content,nsfw,sexual_themes
 content,nsfw,explicit_content
 content,nsfw,fetish_fashion
 content,nsfw,adult_only
+custom,,bondage

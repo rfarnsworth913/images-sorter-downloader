@@ -25,6 +25,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed.' }
         & java --add-modules jdk.httpserver -cp 'build/classes;build/test-classes' com.imagesorter.ServiceSmokeTest
         if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
+        & java -cp 'build/classes;build/test-classes' com.imagesorter.ui.SelectorSmokeTest
+        if ($LASTEXITCODE -ne 0) { throw 'Selector tests failed.' }
     }
     if ($Run) { & java -jar build/images-sorter-downloader.jar }
 } finally {

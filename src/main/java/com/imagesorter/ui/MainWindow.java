@@ -192,17 +192,12 @@ public final class MainWindow extends JFrame {
     private JPanel patternPanel() {
         JPanel panel = surface(PANEL, 16); panel.setLayout(new BorderLayout(0, 8));
         JPanel settings = vertical();
-        addRow(settings, title("Folder & filename pattern", 17)); addRow(settings, pattern);
-        addRow(settings, muted("Use \\ to create folders. The source extension is added automatically."));
-        addRow(settings, new JSeparator()); addRow(settings, title("Tag library", 16));
-        JPanel chips = new JPanel(new GridLayout(0, 4, 6, 6)); chips.setOpaque(false);
-        for (String tag : tagCatalog.patterns()) {
-            JButton chip = button("{{" + tag + "}}", false); chip.setForeground(ACCENT);
-            chip.setFont(chip.getFont().deriveFont(11f)); chip.setPreferredSize(new Dimension(tag.length()*7 + 30, 28));
-            chip.addActionListener(event -> pattern.replaceSelection("{{" + tag + "}}")); chips.add(chip);
-        }
-        chips.setPreferredSize(new Dimension(420, Math.max(1, (tagCatalog.patterns().size() + 3) / 4) * 35 - 6)); addRow(settings, chips);
-        addRow(settings, muted("Click a tag to insert it at the cursor."));
+        addRow(settings, title("Folder & filename pattern", 17));
+        PatternEditor pathEditor = new PatternEditor(tagCatalog, pattern);
+        pathEditor.setAlignmentX(Component.LEFT_ALIGNMENT);
+        settings.add(pathEditor); settings.add(Box.createVerticalStrut(10));
+        addRow(settings, muted("Type \\ or / for folders. Choose tags from the dropdown."));
+        addRow(settings, muted("Metadata tags expand; custom text stays literal. Extension is preserved."));
         addRow(settings, new JSeparator()); addRow(settings, title("Live preview", 16));
         panel.add(settings, BorderLayout.NORTH);
         DefaultTreeCellRenderer treeRenderer = new DefaultTreeCellRenderer();
